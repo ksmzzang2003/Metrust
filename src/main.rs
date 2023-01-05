@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::{collections::HashMap, fs::{File, self}, io::BufReader};
+use std::{collections::HashMap, fs::{File, self}, io::BufReader, cmp::{max, min}};
 
 use macroquad::prelude::*;
 
@@ -86,37 +86,59 @@ pub fn iter_json_array<T: DeserializeOwned, R: Read>(
     std::iter::from_fn(move || yield_next_obj(&mut reader, &mut at_start).transpose())
 }
 pub fn getXY(lat : f64, lng : f64) -> Vec2 {
-    return const_vec2!([(lng as f32 + 180f32) * (screen_width() as f32 / 360f32),(-lat as f32  + 90f32) * (screen_height() as f32/ 180f32)]); 
+    use utm::to_utm_wgs84;
+    let (mut northing, mut easting, meridian_convergence) = to_utm_wgs84(lat, lng, 52);
+    let northingf32 = (northing as f32 -4071260.5f32)/70000f32; 
+    let eastingf32 = (easting as f32 - 276782f32)/70000f32;
+    return const_vec2!([(eastingf32) * screen_width() ,(1.0f32-northingf32 + 0.5) * screen_height()]);
 }
 
 
 
 #[macroquad::main("MetRust")]
 async fn main() {
-    let mut LINE_COLOR : Vec<Color> = vec![
-        Color::new(0f32,0f32,0f32,0f32),
-        Color::new(0f32, 82f32, 164f32, 1f32),
-        Color::new(0f32, 168f32, 77f32, 1f32),
-        Color::new(239f32, 124f32, 28f32, 1f32),
-        Color::new(0f32, 164f32, 227f32, 1f32),
-        Color::new(153f32, 108f32, 172f32, 1f32),
-        Color::new(205f32, 124f32, 47f32, 1f32),
-        Color::new(116f32, 127f32, 0f32, 1f32),
-        Color::new(230f32, 24f32, 108f32, 1f32),
-        Color::new(189f32, 176f32, 146f32, 1f32)
+    let LINE_COLOR : Vec<Color> = vec![
+        color_u8!(0,0,0,0),
+        color_u8!(0, 82, 164, 255),
+        color_u8!(0, 168, 77, 255),
+        color_u8!(239, 124, 28, 255),
+        color_u8!(0, 164, 227, 255),
+        color_u8!(153, 108, 172, 255),
+        color_u8!(205, 124, 47, 255),
+        color_u8!(116, 127, 0, 255),
+        color_u8!(230, 24, 108, 255),
+        color_u8!(189, 176, 146, 255) // NEED EXPAND
     ];
     let mut STATIONS : Vec<Station> = vec![]; 
+    let mut INDEXOFSTATION : HashMap<String,usize> = HashMap::new(); 
+    let mut CONNECTED : Vec<Vec<usize>> = Vec::with_capacity(STATIONS.len()); 
     let reader = BufReader::new(File::open("stations.txt").unwrap());
-    for user in iter_json_array(reader) {
-        if user.is_ok(){
-            let user: Station = user.unwrap();
-            STATIONS.push(user);
-            //println!("{:?}", user);
+    for stop in iter_json_array(reader) {
+        if stop.is_ok(){
+            STATIONS.push(stop.unwrap());
+            INDEXOFSTATION.insert(STATIONS[STATIONS.len()-1].name.clone(), STATIONS.len()-1);
         }
     }
 
     request_new_screen_size(720.0f32, 450.0f32);
-    loop {
+    loop{
+        clear_background(WHITE);
+        for stop in STATIONS.iter(){
+            let pos = getXY(stop.lat,stop.lng); 
+            //println!("{} : {}",stop.line,stop.name);
+            draw_circle(pos.x, pos.y, 2.0f32, match stop.line.as_str() {
+                "01호선" => LINE_COLOR[1],
+                "02호선" => LINE_COLOR[2],
+                "03호선" => LINE_COLOR[3],
+                "04호선" => LINE_COLOR[4],
+                "05호선" => LINE_COLOR[5],
+                "06호선" => LINE_COLOR[6],
+                "07호선" => LINE_COLOR[7],
+                "08호선" => LINE_COLOR[8],
+                "09호선" => LINE_COLOR[9],
+                _ => Color::new(0f32,0f32,0f32,0f32),
+            }); 
+        }
 
         next_frame().await;
     }
