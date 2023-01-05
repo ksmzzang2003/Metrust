@@ -7,7 +7,6 @@ use macroquad::prelude::*;
 
 struct Train{
     line : i32,
-    orientation : bool, 
     destination : i32, 
     prev : i32,
     location : Vec2, 
@@ -119,7 +118,11 @@ async fn main() {
             INDEXOFSTATION.insert(STATIONS[STATIONS.len()-1].name.clone(), STATIONS.len()-1);
         }
     }
-
+    //CONNECTED[]
+    //connect("양평","영등포구청");
+    //connect("영등포구청","영등포시장");
+    //connect("당산","영등포구청");
+    //connect("영등포구청","합정");
     request_new_screen_size(720.0f32, 450.0f32);
     loop{
         clear_background(WHITE);
