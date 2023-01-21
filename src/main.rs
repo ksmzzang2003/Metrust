@@ -99,9 +99,10 @@ impl Line {
             let mut i = self.stops.len() -2 ;
             while i>=0 {
                 self.stops.push(Station::new(self.stops[i].circle.x,self.stops[i].circle.y,self.stops[i].circle.r));
-                if i==0{
+                i=i-1; 
+                if i==0 {
                     break; 
-                }
+                } 
             }
         }
     }
