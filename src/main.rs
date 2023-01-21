@@ -1,148 +1,182 @@
-#[macro_use]
-extern crate serde_derive;
-
-use std::{collections::HashMap, fs::{File, self}, io::BufReader, cmp::{max, min}};
-
 use macroquad::prelude::*;
 
-struct Train{
-    line : i32,
-    destination : i32, 
-    prev : i32,
-    location : Vec2, 
-    velocity : Vec2,
-    capacity : i32,  
-    heading : Vec<i32>, 
-    embarked : i32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 struct Station {
-    line : String,
-    name : String,
-    code : i64, 
-    lat : f64,
-    lng : f64,
+    circle: Circle,
+}
+impl Station {
+    pub fn new(x: f32, y: f32, r: f32) -> Self {
+        Self {
+            circle: Circle::new(x, y, r),
+        }
+    }
+    pub fn draw(&self) {
+        draw_circle(self.circle.x, self.circle.y, self.circle.r, BLUE);
+    }
+}
+impl PartialEq for Station {
+    fn eq (&self,other : &Self) -> bool {
+        return (self.circle.x == other.circle.x)&&(self.circle.y == other.circle.y)&&(self.circle.r == other.circle.r);
+    }
 }
 
+struct Train {
+    circle: Circle,
+    next : Option<Station>,
+}
 
-use serde::de::DeserializeOwned;
-use serde_json::{self, Deserializer};
-use std::io::{self, Read};
+impl Train {
+    pub fn new(x: f32, y: f32,next : Option<Station>) -> Self {
+        Self {
+            circle: Circle::new(x, y, 10.0f32),
+            next : next, 
+        }
+    }
+    pub fn update_train(&mut self, dt: f32) {
+        let mut vel : Vec2 = Vec2::new(0f32,0f32);
+        if self.next.is_some() {
+            let nxt = self.next.as_ref().unwrap();
+            let mut dir = const_vec2!([nxt.circle.x,nxt.circle.y]) - const_vec2!([self.circle.x,self.circle.y]);
+            vel = dir.normalize();
+        }
+        self.circle.x += dt * vel.x * 10.0; 
+        self.circle.y += dt * vel.y * 10.0; 
+    }
+    pub fn draw_train(&self) {
+        draw_circle(self.circle.x, self.circle.y, self.circle.r, RED);
+    }
+}
 
-fn read_skipping_ws(mut reader: impl Read) -> io::Result<u8> {
-    loop {
-        let mut byte = 0u8;
-        reader.read_exact(std::slice::from_mut(&mut byte))?;
-        if !byte.is_ascii_whitespace() {
-            return Ok(byte);
+struct Line {
+    stops: Vec<Station>,
+    trains: Vec<Train>,
+}
+
+impl Line {
+    pub fn new() -> Self {
+        Self {
+            stops: Vec::new(),
+            trains: Vec::new(),
+        }
+    }
+    pub fn draw_line(&self) {
+        let mut i: usize = 0;
+        while (i + 1) < self.stops.len() {
+            draw_line(
+                self.stops[i].circle.x,
+                self.stops[i].circle.y,
+                self.stops[i + 1].circle.x,
+                self.stops[i + 1].circle.y,
+                5f32,
+                BLUE,
+            );
+            i = i + 1;
+        }
+    }
+    pub fn draw_train(&self) {
+        for car in self.trains.iter() {
+            car.draw_train();
+        }
+    }
+    pub fn draw(&self) {
+        self.draw_line();
+        self.draw_train();
+    }
+    
+    pub fn release_train(&mut self) {
+        //println!("trains len {}",self.trains.len());
+        self.trains.push(Train::new(self.stops[0].circle.x, self.stops[0].circle.y,Some(Station::new(self.stops[1].circle.x, self.stops[1].circle.y, self.stops[1].circle.r))));
+        //println!("new trains len {}",self.trains.len());
+        //println!("tf : {}",self.trains[self.trains.len()- 1 as usize].next.is_some());
+        //self.trains.push(Train::new(self.trains[0].circle.x, self.trains[0].circle.y, self.trains[1]));
+    }
+
+    pub fn update(&mut self, dt : f32){
+        //println!("# of train : {}", self.trains.len());
+        for train in self.trains.iter_mut() {
+            //println!("Train next exists?: {}",train.next.is_some());
+            train.update_train(dt);
         }
     }
 }
 
-fn invalid_data(msg: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, msg)
-}
-
-fn deserialize_single<T: DeserializeOwned, R: Read>(reader: R) -> io::Result<T> {
-    let next_obj = Deserializer::from_reader(reader).into_iter::<T>().next();
-    match next_obj {
-        Some(result) => result.map_err(Into::into),
-        None => Err(invalid_data("premature EOF")),
-    }
-}
-
-fn yield_next_obj<T: DeserializeOwned, R: Read>(
-    mut reader: R,
-    at_start: &mut bool,
-) -> io::Result<Option<T>> {
-    if !*at_start {
-        *at_start = true;
-        if read_skipping_ws(&mut reader)? == b'[' {
-            // read the next char to see if the array is empty
-            let peek = read_skipping_ws(&mut reader)?;
-            if peek == b']' {
-                Ok(None)
-            } else {
-                deserialize_single(io::Cursor::new([peek]).chain(reader)).map(Some)
-            }
-        } else {
-            Err(invalid_data("`[` not found"))
-        }
-    } else {
-        match read_skipping_ws(&mut reader)? {
-            b',' => deserialize_single(reader).map(Some),
-            b']' => Ok(None),
-            _ => Err(invalid_data("`,` or `]` not found")),
-        }
-    }
-}
-
-pub fn iter_json_array<T: DeserializeOwned, R: Read>(
-    mut reader: R,
-) -> impl Iterator<Item = Result<T, io::Error>> {
-    let mut at_start = false;
-    std::iter::from_fn(move || yield_next_obj(&mut reader, &mut at_start).transpose())
-}
-pub fn getXY(lat : f64, lng : f64) -> Vec2 {
-    use utm::to_utm_wgs84;
-    let (mut northing, mut easting, meridian_convergence) = to_utm_wgs84(lat, lng, 52);
-    let northingf32 = (northing as f32 -4071260.5f32)/70000f32; 
-    let eastingf32 = (easting as f32 - 276782f32)/70000f32;
-    return const_vec2!([(eastingf32) * screen_width() ,(1.0f32-northingf32 + 0.5) * screen_height()]);
-}
-
-
-
-#[macroquad::main("MetRust")]
+#[macroquad::main("Metrust")]
 async fn main() {
-    let LINE_COLOR : Vec<Color> = vec![
-        color_u8!(0,0,0,0),
-        color_u8!(0, 82, 164, 255),
-        color_u8!(0, 168, 77, 255),
-        color_u8!(239, 124, 28, 255),
-        color_u8!(0, 164, 227, 255),
-        color_u8!(153, 108, 172, 255),
-        color_u8!(205, 124, 47, 255),
-        color_u8!(116, 127, 0, 255),
-        color_u8!(230, 24, 108, 255),
-        color_u8!(189, 176, 146, 255) // NEED EXPAND
+    let mut Stations: Vec<Station> = vec![
+        Station::new(
+            0f32 + screen_width() * 0.5,
+            0f32 + screen_height() * 0.5,
+            20f32,
+        ),
+        Station::new(
+            100f32 + screen_width() * 0.5,
+            0f32 + screen_height() * 0.5,
+            20f32,
+        ),
     ];
-    let mut STATIONS : Vec<Station> = vec![]; 
-    let mut INDEXOFSTATION : HashMap<String,usize> = HashMap::new(); 
-    let mut CONNECTED : Vec<Vec<usize>> = Vec::with_capacity(STATIONS.len()); 
-    let reader = BufReader::new(File::open("stations.txt").unwrap());
-    for stop in iter_json_array(reader) {
-        if stop.is_ok(){
-            STATIONS.push(stop.unwrap());
-            INDEXOFSTATION.insert(STATIONS[STATIONS.len()-1].name.clone(), STATIONS.len()-1);
-        }
-    }
-    //CONNECTED[]
-    //connect("양평","영등포구청");
-    //connect("영등포구청","영등포시장");
-    //connect("당산","영등포구청");
-    //connect("영등포구청","합정");
-    request_new_screen_size(720.0f32, 450.0f32);
-    loop{
+    Stations.push(Station::new(
+        screen_width() * 0.5,
+        screen_height() * 0.5 + 200f32,
+        20f32,
+    ));
+    let mut Lines: Vec<Line> = vec![Line::new()];
+    loop {
         clear_background(WHITE);
-        for stop in STATIONS.iter(){
-            let pos = getXY(stop.lat,stop.lng); 
-            //println!("{} : {}",stop.line,stop.name);
-            draw_circle(pos.x, pos.y, 2.0f32, match stop.line.as_str() {
-                "01호선" => LINE_COLOR[1],
-                "02호선" => LINE_COLOR[2],
-                "03호선" => LINE_COLOR[3],
-                "04호선" => LINE_COLOR[4],
-                "05호선" => LINE_COLOR[5],
-                "06호선" => LINE_COLOR[6],
-                "07호선" => LINE_COLOR[7],
-                "08호선" => LINE_COLOR[8],
-                "09호선" => LINE_COLOR[9],
-                _ => Color::new(0f32,0f32,0f32,0f32),
-            }); 
+
+        // Line Linking
+        if is_key_down(KeyCode::Space) {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                //println!("Is it released?");
+                for stop in Stations.iter() {
+                    if const_vec2!([stop.circle.x, stop.circle.y])
+                        .distance(const_vec2!([mouse_position().0, mouse_position().1]))
+                        < stop.circle.r * 0.7
+                    {
+                        if Lines[0].stops.len() ==0 {
+                            Lines[0].stops.push(Station::new(
+                                stop.circle.x,
+                                stop.circle.y,
+                                stop.circle.r,
+                            ));
+                        }
+                        else if (Station::new(
+                            stop.circle.x,
+                            stop.circle.y,
+                            stop.circle.r,
+                        ) != Lines[0].stops[Lines[0].stops.len() -1 as usize]){
+                            Lines[0].stops.push(Station::new(
+                                stop.circle.x,
+                                stop.circle.y,
+                                stop.circle.r,
+                            ));
+                        }
+                    }
+                }
+                // for stop in Lines[0].stops.iter() {
+                //     println!("Check : {},{} radius : {} ", stop.circle.x ,stop.circle.y,stop.circle.r);
+                // }
+                // println!("Checking End");
+            }
+            //println!("Length : {}",Lines[0].stops.len());
+            if Lines[0].stops.len()>0 {
+                draw_line(Lines[0].stops[Lines[0].stops.len() - 1 as usize].circle.x, Lines[0].stops[Lines[0].stops.len() - 1 as usize].circle.y, mouse_position().0, mouse_position().1, 5.0f32, BLUE);
+            }
         }
 
+        if is_mouse_button_pressed(MouseButton::Right) {
+            println!("Right Click released!");
+            Lines[0].release_train(); 
+            println!("next {} ",Lines[0].trains[0].next.is_some());
+        }
+
+        for stop in Stations.iter() {
+            stop.draw();
+        }
+        for line in Lines.iter_mut() {
+            line.draw_line();
+            line.draw_train();
+            //println!("Update Reached?");
+            line.update(get_frame_time()); 
+        }
         next_frame().await;
     }
 }
