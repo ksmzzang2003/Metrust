@@ -38,8 +38,8 @@ impl Train {
             let mut dir = const_vec2!([nxt.circle.x,nxt.circle.y]) - const_vec2!([self.circle.x,self.circle.y]);
             vel = dir.normalize();
         }
-        self.circle.x += dt * vel.x * 10.0; 
-        self.circle.y += dt * vel.y * 10.0; 
+        self.circle.x += dt * vel.x * 30.0; 
+        self.circle.y += dt * vel.y * 30.0; 
     }
     pub fn draw_train(&self) {
         draw_circle(self.circle.x, self.circle.y, self.circle.r, RED);
@@ -49,6 +49,7 @@ impl Train {
 struct Line {
     stops: Vec<Station>,
     trains: Vec<Train>,
+    next_idx : Vec<usize>,
 }
 
 impl Line {
@@ -56,6 +57,7 @@ impl Line {
         Self {
             stops: Vec::new(),
             trains: Vec::new(),
+            next_idx : Vec::new(),
         }
     }
     pub fn draw_line(&self) {
@@ -85,6 +87,7 @@ impl Line {
     pub fn release_train(&mut self) {
         //println!("trains len {}",self.trains.len());
         self.trains.push(Train::new(self.stops[0].circle.x, self.stops[0].circle.y,Some(Station::new(self.stops[1].circle.x, self.stops[1].circle.y, self.stops[1].circle.r))));
+        self.next_idx.push(1); 
         //println!("new trains len {}",self.trains.len());
         //println!("tf : {}",self.trains[self.trains.len()- 1 as usize].next.is_some());
         //self.trains.push(Train::new(self.trains[0].circle.x, self.trains[0].circle.y, self.trains[1]));
@@ -92,9 +95,18 @@ impl Line {
 
     pub fn update(&mut self, dt : f32){
         //println!("# of train : {}", self.trains.len());
-        for train in self.trains.iter_mut() {
-            //println!("Train next exists?: {}",train.next.is_some());
-            train.update_train(dt);
+        let mut i = 0; 
+        while i < self.trains.len() {
+            self.trains[i].update_train(dt); 
+            if self.trains[i].next.is_some() {
+                let nxt = self.trains[i].next.as_ref().unwrap();
+                if const_vec2!([nxt.circle.x,nxt.circle.y]).distance(const_vec2!([self.trains[i].circle.x,self.trains[i].circle.y])) < 1.0 {
+                    let idx = self.next_idx[self.next_idx.len() -1 as usize]+1;
+                    self.next_idx.push(idx);
+                    self.trains[i].next = Some(Station::new(self.stops[idx].circle.x, self.stops[idx].circle.y, self.stops[idx].circle.r));
+                }
+            }
+            i = i+1;
         }
     }
 }
