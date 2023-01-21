@@ -79,18 +79,31 @@ impl Line {
             car.draw_train();
         }
     }
-    pub fn draw(&self) {
-        self.draw_line();
-        self.draw_train();
-    }
     
-    pub fn release_train(&mut self) {
+    pub fn release_train(&mut self) {        
         //println!("trains len {}",self.trains.len());
         self.trains.push(Train::new(self.stops[0].circle.x, self.stops[0].circle.y,Some(Station::new(self.stops[1].circle.x, self.stops[1].circle.y, self.stops[1].circle.r))));
         self.next_idx.push(1); 
         //println!("new trains len {}",self.trains.len());
         //println!("tf : {}",self.trains[self.trains.len()- 1 as usize].next.is_some());
         //self.trains.push(Train::new(self.trains[0].circle.x, self.trains[0].circle.y, self.trains[1]));
+    }
+
+    pub fn circularize(&mut self) {
+        //println!("Check stops {}",self.stops.len());
+        if (self.stops[0].circle.x == self.stops[self.stops.len()-1].circle.x) && (self.stops[0].circle.y == self.stops[self.stops.len()-1].circle.y) {
+            return ; 
+        }
+        else {
+            println!("Is it alive? {}",self.stops.len());
+            let mut i = self.stops.len() -2 ;
+            while i>=0 {
+                self.stops.push(Station::new(self.stops[i].circle.x,self.stops[i].circle.y,self.stops[i].circle.r));
+                if i==0{
+                    break; 
+                }
+            }
+        }
     }
 
     pub fn update(&mut self, dt : f32){
@@ -101,7 +114,10 @@ impl Line {
             if self.trains[i].next.is_some() {
                 let nxt = self.trains[i].next.as_ref().unwrap();
                 if const_vec2!([nxt.circle.x,nxt.circle.y]).distance(const_vec2!([self.trains[i].circle.x,self.trains[i].circle.y])) < 1.0 {
-                    let idx = self.next_idx[self.next_idx.len() -1 as usize]+1;
+                    let mut idx = self.next_idx[self.next_idx.len() -1 as usize]+1; 
+                    if idx == self.stops.len() { 
+                        idx  = 1 ;
+                    }
                     self.next_idx.push(idx);
                     self.trains[i].next = Some(Station::new(self.stops[idx].circle.x, self.stops[idx].circle.y, self.stops[idx].circle.r));
                 }
@@ -176,6 +192,7 @@ async fn main() {
 
         if is_mouse_button_pressed(MouseButton::Right) {
             println!("Right Click released!");
+            Lines[0].circularize();
             Lines[0].release_train(); 
             println!("next {} ",Lines[0].trains[0].next.is_some());
         }
