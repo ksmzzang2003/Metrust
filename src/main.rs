@@ -22,6 +22,7 @@ impl PartialEq for Station {
 struct Train {
     circle: Circle,
     next : Option<Station>,
+    people : Vec<Client>,
 }
 
 impl Train {
@@ -29,6 +30,7 @@ impl Train {
         Self {
             circle: Circle::new(x, y, 10.0f32),
             next : next, 
+            people : Vec::new(),
         }
     }
     pub fn update_train(&mut self, dt: f32) {
@@ -99,10 +101,10 @@ impl Line {
             let mut i = self.stops.len() -2 ;
             while i>=0 {
                 self.stops.push(Station::new(self.stops[i].circle.x,self.stops[i].circle.y,self.stops[i].circle.r));
-                i=i-1; 
                 if i==0 {
                     break; 
                 } 
+                i=i-1; 
             }
         }
     }
@@ -118,6 +120,7 @@ impl Line {
                     let mut idx = self.next_idx[self.next_idx.len() -1 as usize]+1; 
                     if idx == self.stops.len() { 
                         idx  = 1 ;
+                        self.next_idx.clear();
                     }
                     self.next_idx.push(idx);
                     self.trains[i].next = Some(Station::new(self.stops[idx].circle.x, self.stops[idx].circle.y, self.stops[idx].circle.r));
@@ -128,30 +131,34 @@ impl Line {
     }
 }
 
+
+struct Client {
+    source : Station, 
+    sink : Station,  
+}
+impl Client {
+    pub fn new(S : Station, T : Station) -> Self {
+        Self {
+            source : S, 
+            sink : T, 
+        }
+    }
+}
 #[macroquad::main("Metrust")]
 async fn main() {
-    let mut Stations: Vec<Station> = vec![
-        Station::new(
-            0f32 + screen_width() * 0.5,
-            0f32 + screen_height() * 0.5,
-            20f32,
-        ),
-        Station::new(
-            100f32 + screen_width() * 0.5,
-            0f32 + screen_height() * 0.5,
-            20f32,
-        ),
-    ];
-    Stations.push(Station::new(
-        screen_width() * 0.5,
-        screen_height() * 0.5 + 200f32,
-        20f32,
-    ));
+    let mut Stations: Vec<Station> = vec![];
+    
     let mut Lines: Vec<Line> = vec![Line::new()];
     loop {
         clear_background(WHITE);
-
         // Line Linking
+        if is_key_down(KeyCode::Space)==false && is_mouse_button_pressed(MouseButton::Left) {
+            Stations.push(Station::new(
+                mouse_position().0,
+                mouse_position().1,
+                20f32,
+            ),)
+        }
         if is_key_down(KeyCode::Space) {
             if is_mouse_button_pressed(MouseButton::Left) {
                 //println!("Is it released?");
@@ -191,22 +198,26 @@ async fn main() {
             }
         }
 
-        if is_mouse_button_pressed(MouseButton::Right) {
-            println!("Right Click released!");
-            Lines[0].circularize();
-            Lines[0].release_train(); 
-            println!("next {} ",Lines[0].trains[0].next.is_some());
-        }
-
-        for stop in Stations.iter() {
-            stop.draw();
-        }
         for line in Lines.iter_mut() {
+            if is_mouse_button_pressed(MouseButton::Right) {
+                println!("Right Click released!");
+                line.circularize();
+                line.release_train(); 
+                println!("next {} ",line.trains[0].next.is_some());
+            }
             line.draw_line();
             line.draw_train();
             //println!("Update Reached?");
             line.update(get_frame_time()); 
         }
+
+        let mut i = 0; 
+        while i < Stations.len() {
+            Stations[i].draw(); 
+            draw_text(i.to_string().as_str(), Stations[i].circle.x, Stations[i].circle.y, 30f32, BLACK);
+            i = i+1; 
+        }
+
         next_frame().await;
     }
 }
